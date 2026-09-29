@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>Velehrad historický</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #f4f4f4; margin: 0; padding: 20px; }
+        .layout { max-width: 1150px; margin: 0 auto; }
+        .card { background: #fff; margin: 0 0 20px; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .meta { display: flex; gap: 12px; align-items: baseline; margin-bottom: 10px; }
+        .id { background: #2c3e50; color: #fff; font-size: 0.85em; padding: 2px 8px; border-radius: 4px; }
+        .date { color: #888; font-size: 0.9em; font-weight: bold; }
+        .desc { line-height: 1.6; white-space: pre-wrap; }
+        .empty { text-align: center; color: #888; padding: 20px; }
+
+        /* Fotka s ochranou a vodoznakem */
+        .photo { position: relative; width: fit-content; max-width: 100%; margin: 0 auto 15px; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+        .photo img { max-width: 100%; height: auto; display: block; border-radius: 4px; pointer-events: none; }
+        .photo::after { content: ""; position: absolute; inset: 0; }
+        .wm { position: absolute; right: 12px; bottom: 10px; z-index: 1; color: rgba(255,255,255,0.8);
+              font-size: 0.9em; font-weight: bold; text-shadow: 0 0 4px rgba(0,0,0,0.7); pointer-events: none; }
+
+        /* Kompaktní kalendář */
+        .cal { padding: 14px; }
+        .cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .cal-head h2 { margin: 0; font-size: 1em; }
+        button { font: inherit; }
+        .cal-head button, .nav button, .tools button, .back { padding: 4px 10px; border: 1px solid #ccc; background: #fff; border-radius: 4px; cursor: pointer; }
+        button:disabled { opacity: 0.35; cursor: default; }
+        .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+        .wd { text-align: center; font-size: 0.72em; color: #888; padding: 2px 0; }
+        .day { height: 30px; padding: 0; border: 1px solid transparent; border-radius: 4px; background: #f7f7f7; color: #bbb; font-size: 0.85em; }
+        .day.has { background: #e3ebf3; color: #2c3e50; font-weight: bold; cursor: pointer; }
+        .day.has:hover { border-color: #2c3e50; }
+        .day.today { outline: 2px solid #c0392b; outline-offset: -2px; }
+        .day.sel { background: #2c3e50; color: #fff; }
+        button:focus-visible, input:focus-visible { outline: 2px solid #2980b9; outline-offset: 2px; }
+        .tools { margin-top: 10px; }
+        .nav { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 15px; }
+
+        /* Hledání */
+        .search { display: flex; gap: 8px; margin-bottom: 15px; }
+        .search input { flex: 1; padding: 9px 12px; font: inherit; border: 1px solid #ccc; border-radius: 6px; }
+        .search-info { color: #666; font-size: 0.9em; margin: -5px 0 12px; }
+        .hit { display: flex; gap: 14px; width: 100%; text-align: left; background: #fff; border: 1px solid transparent;
+               border-radius: 8px; padding: 12px; margin-bottom: 10px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+               user-select: none; -webkit-touch-callout: none; }
+        .hit:hover { border-color: #2c3e50; }
+        .hit .thumb { flex: 0 0 110px; height: 110px; display: flex; align-items: center; justify-content: center; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
+        .hit .thumb img { max-width: 100%; max-height: 100%; pointer-events: none; }
+        .hit .snip { line-height: 1.5; color: #333; font-size: 0.95em; }
+        mark { background: #fbe38e; color: inherit; padding: 0 1px; border-radius: 2px; }
+        .back { margin-bottom: 15px; }
+
+        .page-head, .page-foot { max-width: 1150px; margin: 0 auto; }
+        .page-head h1 { margin: 0 0 20px; font-size: 1.8em; color: #2c3e50; }
+        .page-foot { margin-top: 10px; padding: 15px 0 5px; border-top: 1px solid #ddd; text-align: center; color: #888; font-size: 0.85em; }
+
+        /* Mobil: kalendář schovaný pod tlačítkem */
+        .cal-toggle { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; background: #fff; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        #calPanel { display: none; }
+        #calPanel.open { display: block; }
+        @media (max-width: 500px) { .hit .thumb { flex-basis: 80px; height: 80px; } }
+
+        /* Širší obrazovka: kalendář vlevo, obsah vpravo */
+        @media (min-width: 900px) {
+            .layout { display: grid; grid-template-columns: 280px 1fr; gap: 24px; align-items: start; }
+            .side { position: sticky; top: 20px; }
+            .cal-toggle { display: none; }
+            #calPanel { display: block; }
+        }
+    </style>
+</head>
+<body>
+<header class="page-head"><h1>Velehrad historický</h1></header>
+
+<div class="layout">
+    <aside class="side">
+        <button id="calToggle" class="cal-toggle" aria-expanded="false">📅 Kalendář</button>
+        <div id="calPanel" class="card cal">
+            <div class="cal-head">
+                <button id="prevMonth" aria-label="Předchozí měsíc">‹</button>
+                <h2 id="monthTitle"></h2>
+                <button id="nextMonth" aria-label="Další měsíc">›</button>
+            </div>
+            <div class="grid" id="calendar"></div>
+            <div class="tools"><button id="latestBtn">Nejnovější</button></div>
+        </div>
+    </aside>
+
+    <main>
+        <div class="search">
+            <input id="searchInput" type="search" placeholder="Hledat v popiscích nebo podle ID…" aria-label="Hledat">
+        </div>
+        <div id="searchInfo" class="search-info" hidden></div>
+
+        <div id="dayView">
+            <button id="backToResults" class="back" hidden>‹ Zpět na výsledky hledání</button>
+            <div class="nav">
+                <button id="prevPost">‹ Předchozí den</button>
+                <button id="nextPost">Další den ›</button>
+            </div>
+            <div id="gallery">Načítám data...</div>
+        </div>
+        <div id="results" hidden></div>
+    </main>
+</div>
+
+<footer class="page-foot">© <span id="year"></span> Lubomír Otrusina</footer>
+
+<script>
+    const csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTvDPEHZoAMrLnTDu1R6FYIa5uZGJvM9ywd3E9OsqCf6rGvf8KoZQ0AUKILdGOcbTyGMzIA-MZPQM7p/pub?gid=0&single=true&output=csv';
+
+    const DATE_COLUMN = 'DATUM';                // sloupec s datem publikace
+    const SHOW_FUTURE = false;                  // false = budoucí příspěvky se zatím nezobrazí
+    const WATERMARK = '© Velehrad historický';  // text vodoznaku ('' = bez vodoznaku)
+    const IMG_SIZE = 800;                       // max. delší strana fotky v px (portrait = výška, landscape = šířka)
+    const HIDE_COLUMN = 'HIDDEN';               // sloupec pro skrytí příspěvku ("ano", "x", 1 nebo zaškrtávací políčko)
+
+    const isHidden = v => ['true', 'ano', 'x', '1', 'yes'].includes(String(v || '').trim().toLowerCase());
+
+    const MONTHS = ['leden','únor','březen','duben','květen','červen','červenec','srpen','září','říjen','listopad','prosinec'];
+    const MONTHS_GEN = ['ledna','února','března','dubna','května','června','července','srpna','září','října','listopadu','prosince'];
+    const $ = id => document.getElementById(id);
+    const pad = n => String(n).padStart(2, '0');
+    const keyOf = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`;
+    const now = new Date();
+    const todayKey = keyOf(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    const isWide = () => window.matchMedia('(min-width: 900px)').matches;
+    const thumbUrl = (id, size) => `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w${size}-h${size}`;
+
+    const esc = s => String(s ?? '').replace(/[&<>"']/g,
+        c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    // Hledání bez ohledu na diakritiku a velikost písmen ("kostel" najde i "Kostel", "rimsky" i "římský").
+    // Každý znak se převede právě na jeden znak, aby šlo nalezené místo zvýraznit v původním textu.
+    const foldChar = c => { const f = c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); return f.length === 1 ? f : '\u0000'; };
+    const fold = s => [...String(s || '')].map(foldChar).join('');
+
+    function dateKey(s) {
+        s = (s || '').trim();
+        let m;
+        if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)))         return keyOf(m[1], m[2], m[3]);
+        if ((m = s.match(/^(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/))) return keyOf(m[3], m[2], m[1]);
+        if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)))       return keyOf(m[3], m[1], m[2]);
+        return null;
+    }
+    const humanDate = k => `${+k.slice(8, 10)}. ${MONTHS_GEN[+k.slice(5, 7) - 1]} ${k.slice(0, 4)}`;
+
+    let byDay = new Map(), days = [], allPosts = [], viewY, viewM, selected = null;
+
+    Papa.parse(csvUrl, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: h => h.trim(),
+        complete: results => {
+            results.data.forEach(row => {
+                const ids = (row.DRIVE_ID || '').split(/[\s,;]+/)
+                    .map(x => x.trim()).filter(x => x && !x.startsWith('Nenalezeno'));
+                const key = dateKey(row[DATE_COLUMN]);
+                if (!ids.length || !key || isHidden(row[HIDE_COLUMN])) return;
+                if (!SHOW_FUTURE && key > todayKey) return;
+                const post = { id: (row.ID || '').trim(), ids, datum: row[DATE_COLUMN], popis: row.POPIS || '', key };
+                post.foldedPopis = fold(post.popis);
+                post.foldedId = fold(post.id);
+                if (!byDay.has(key)) byDay.set(key, []);
+                byDay.get(key).push(post);
+                allPosts.push(post);
+            });
+            days = [...byDay.keys()].sort();
+            allPosts.sort((a, b) => b.key.localeCompare(a.key));   // ve výsledcích hledání nejnovější nahoře
+            if (!days.length) { $('gallery').innerHTML = '<div class="empty">V tabulce zatím nejsou žádné publikované příspěvky.</div>'; return; }
+            const fromHash = location.hash.slice(1);
+            selectDay(byDay.has(fromHash) ? fromHash : days[days.length - 1]);
+        },
+        error: err => { $('gallery').innerHTML = `<div class="empty">Data se nepodařilo načíst: ${esc(err.message)}</div>`; }
+    });
+
+    /* ---------- Zobrazení dne ---------- */
+
+    function selectDay(key) {
+        selected = key;
+        viewY = +key.slice(0, 4);
+        viewM = +key.slice(5, 7) - 1;
+        history.replaceState(null, '', '#' + key);
+        $('calToggle').textContent = `📅 ${humanDate(key)} ▾`;
+        showView('day');
+        renderCalendar();
+        renderPosts(byDay.get(key) || []);
+        const i = days.indexOf(key);
+        $('prevPost').disabled = i <= 0;
+        $('nextPost').disabled = i < 0 || i >= days.length - 1;
+    }
+
+    function renderCalendar() {
+        $('monthTitle').textContent = `${MONTHS[viewM]} ${viewY}`;
+        const offset = (new Date(viewY, viewM, 1).getDay() + 6) % 7;
+        const count = new Date(viewY, viewM + 1, 0).getDate();
+        let html = ['Po','Út','St','Čt','Pá','So','Ne'].map(d => `<div class="wd">${d}</div>`).join('');
+        html += '<div></div>'.repeat(offset);
+        for (let d = 1; d <= count; d++) {
+            const k = keyOf(viewY, viewM + 1, d);
+            const cls = ['day', byDay.has(k) && 'has', k === selected && 'sel', k === todayKey && 'today'].filter(Boolean).join(' ');
+            html += `<button class="${cls}" data-key="${k}" ${byDay.has(k) ? '' : 'disabled tabindex="-1"'}>${d}</button>`;
+        }
+        $('calendar').innerHTML = html;
+        const monthKey = `${viewY}-${pad(viewM + 1)}`;
+        $('prevMonth').disabled = monthKey <= days[0].slice(0, 7);
+        $('nextMonth').disabled = monthKey >= days[days.length - 1].slice(0, 7);
+    }
+
+    function renderPosts(list) {
+        $('gallery').innerHTML = list.length ? list.map(p => `
+            <div class="card">
+                ${p.ids.map(id => `
+                    <div class="photo">
+                        <img src="${thumbUrl(id, IMG_SIZE)}" loading="lazy" draggable="false" alt="Foto ${esc(p.id)}">
+                        ${WATERMARK ? `<div class="wm">${esc(WATERMARK)}</div>` : ''}
+                    </div>`).join('')}
+                <div class="meta">
+                    ${p.id ? `<span class="id">ID ${esc(p.id)}</span>` : ''}
+                    <span class="date">${esc(p.datum)}</span>
+                </div>
+                <div class="desc">${esc(p.popis)}</div>
+            </div>`).join('')
+            : '<div class="empty">Tento den nebyl publikován žádný příspěvek.</div>';
+    }
+
+    function shiftMonth(delta) {
+        viewM += delta;
+        if (viewM < 0) { viewM = 11; viewY--; }
+        if (viewM > 11) { viewM = 0; viewY++; }
+        renderCalendar();
+    }
+
+    /* ---------- Hledání ---------- */
+
+    let view = 'day';
+    function showView(v) {
+        view = v;
+        $('dayView').hidden = v !== 'day';
+        $('results').hidden = v !== 'search';
+        $('searchInfo').hidden = v !== 'search';
+        $('backToResults').hidden = !(v === 'day' && $('searchInput').value.trim().length >= 2);
+    }
+
+    // Úryvek popisu kolem prvního nálezu se zvýrazněnými slovy
+    function snippet(text, words) {
+        const chars = [...text];
+        const folded = chars.map(foldChar).join('');
+        const marks = new Array(chars.length).fill(false);
+        let first = -1;
+        words.forEach(w => {
+            let i = folded.indexOf(w);
+            while (i !== -1) {
+                for (let j = i; j < i + w.length; j++) marks[j] = true;
+                if (first === -1 || i < first) first = i;
+                i = folded.indexOf(w, i + w.length);
+            }
+        });
+        const R = 90;
+        const a = Math.max(0, first - R), b = Math.min(chars.length, Math.max(first, 0) + R * 2);
+        let out = a > 0 ? '…' : '', open = false;
+        for (let i = a; i < b; i++) {
+            if (marks[i] && !open) { out += '<mark>'; open = true; }
+            if (!marks[i] && open) { out += '</mark>'; open = false; }
+            out += esc(chars[i]);
+        }
+        if (open) out += '</mark>';
+        return out + (b < chars.length ? '…' : '');
+    }
+
+    function runSearch() {
+        const q = fold($('searchInput').value.trim());
+        if (q.length < 2) { if (view === 'search') selectDay(selected); else showView('day'); return; }
+
+        const words = q.split(/\s+/).filter(Boolean);
+        // Všechna slova musí být v popisu nebo v ID; přesná shoda ID jde na začátek
+        const hits = allPosts.filter(p => words.every(w => p.foldedPopis.includes(w) || p.foldedId.includes(w)));
+        hits.sort((a, b) => (b.foldedId === q) - (a.foldedId === q));
+
+        showView('search');
+        $('searchInfo').textContent = hits.length
+            ? `Nalezeno ${hits.length} ${hits.length === 1 ? 'příspěvek' : hits.length < 5 ? 'příspěvky' : 'příspěvků'}. Kliknutím zobrazíš celý příspěvek.`
+            : '';
+        $('results').innerHTML = hits.length ? hits.map(p => `
+            <button class="hit" data-key="${p.key}">
+                <span class="thumb"><img src="${thumbUrl(p.ids[0], 220)}" loading="lazy" draggable="false" alt=""></span>
+                <span>
+                    <span class="meta">
+                        ${p.id ? `<span class="id">ID ${esc(p.id)}</span>` : ''}
+                        <span class="date">${esc(p.datum)}</span>
+                    </span>
+                    <span class="snip">${snippet(p.popis, words)}</span>
+                </span>
+            </button>`).join('')
+            : `<div class="empty">Nic jsem nenašel pro „${esc($('searchInput').value.trim())}“. Zkus jiné slovo nebo kratší tvar (např. „kostel“ místo „kostela“).</div>`;
+    }
+
+    let searchTimer;
+    $('searchInput').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 200); };
+    $('searchInput').onkeydown = e => { if (e.key === 'Escape') { $('searchInput').value = ''; runSearch(); } };
+    $('results').onclick = e => {
+        const hit = e.target.closest('.hit');
+        if (!hit) return;
+        selectDay(hit.dataset.key);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    $('backToResults').onclick = runSearch;
+
+    /* ---------- Ovládání ---------- */
+
+    function toggleCal(open) {
+        $('calPanel').classList.toggle('open', open);
+        $('calToggle').setAttribute('aria-expanded', open);
+    }
+
+    $('calToggle').onclick = () => toggleCal(!$('calPanel').classList.contains('open'));
+    $('calendar').onclick = e => {
+        const b = e.target.closest('.day.has');
+        if (!b) return;
+        selectDay(b.dataset.key);
+        if (!isWide()) toggleCal(false);
+    };
+    $('prevMonth').onclick = () => shiftMonth(-1);
+    $('nextMonth').onclick = () => shiftMonth(1);
+    $('prevPost').onclick = () => selectDay(days[days.indexOf(selected) - 1]);
+    $('nextPost').onclick = () => selectDay(days[days.indexOf(selected) + 1]);
+    $('latestBtn').onclick = () => selectDay(days[days.length - 1]);
+
+    // Šipky vlevo/vpravo = předchozí/další den (ne při psaní do pole a ne ve výsledcích hledání)
+    document.addEventListener('keydown', e => {
+        if (view !== 'day' || e.target.matches('input, textarea') || e.altKey || e.ctrlKey || e.metaKey) return;
+        if (e.key === 'ArrowLeft'  && !$('prevPost').disabled) { e.preventDefault(); $('prevPost').click(); }
+        if (e.key === 'ArrowRight' && !$('nextPost').disabled) { e.preventDefault(); $('nextPost').click(); }
+    });
+
+    $('year').textContent = new Date().getFullYear();
+
+    // Ztížení stahování: blokace pravého tlačítka a přetažení nad fotkami
+    document.addEventListener('contextmenu', e => { if (e.target.closest('.photo, .hit')) e.preventDefault(); });
+    document.addEventListener('dragstart', e => { if (e.target.closest('.photo, .hit')) e.preventDefault(); });
+</script>
+</body>
+</html>
