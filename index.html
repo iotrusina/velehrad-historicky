@@ -56,7 +56,9 @@
         .back { margin-bottom: 15px; }
 
         .page-head, .page-foot { max-width: 1150px; margin: 0 auto; }
-        .page-head h1 { margin: 0 0 20px; font-size: 1.8em; color: #2c3e50; }
+        .page-head h1 { margin: 0 0 20px; font-size: 1.8em; }
+        .page-head a { color: #2c3e50; text-decoration: none; }
+        .page-head a:hover { text-decoration: underline; }
         .page-foot { margin-top: 10px; padding: 15px 0 5px; border-top: 1px solid #ddd; text-align: center; color: #888; font-size: 0.85em; }
 
         /* Mobil: kalendář schovaný pod tlačítkem */
@@ -75,7 +77,7 @@
     </style>
 </head>
 <body>
-<header class="page-head"><h1>Velehrad historický</h1></header>
+<header class="page-head"><h1><a href="./" id="homeLink">Velehrad historický</a></h1></header>
 
 <div class="layout">
     <aside class="side">
@@ -152,7 +154,8 @@
 
     let byDay = new Map(), days = [], allPosts = [], viewY, viewM, selected = null;
 
-    Papa.parse(csvUrl, {
+    // Parametr t obchází cache prohlížeče a mezilehlých serverů (mění se každou minutu)
+    Papa.parse(csvUrl + '&t=' + Math.floor(Date.now() / 60000), {
         download: true,
         header: true,
         skipEmptyLines: true,
@@ -338,6 +341,15 @@
         if (e.key === 'ArrowLeft'  && !$('prevPost').disabled) { e.preventDefault(); $('prevPost').click(); }
         if (e.key === 'ArrowRight' && !$('nextPost').disabled) { e.preventDefault(); $('nextPost').click(); }
     });
+
+    // Nadpis = hlavní stránka: zruší hledání a ukáže nejnovější příspěvek (bez znovunačtení dat)
+    $('homeLink').onclick = e => {
+        if (!days.length) return;              // data ještě nejsou načtená → klasický odkaz
+        e.preventDefault();
+        $('searchInput').value = '';
+        selectDay(days[days.length - 1]);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
 
     $('year').textContent = new Date().getFullYear();
 
